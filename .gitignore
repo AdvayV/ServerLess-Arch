@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.pytest_tmp/
+*.pyc
+.github_known_hosts
+.git-codex-backup/
+.publish-git/
+*.bundle
+*.pdf
+*.zip
