@@ -6,6 +6,7 @@ __pycache__/
 .github_known_hosts
 .git-codex-backup/
 .publish-git/
+.workspace-cleanup-backup/
 *.bundle
 *.pdf
 *.zip
