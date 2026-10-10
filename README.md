@@ -6,6 +6,12 @@ This is a small, explainable **college-portal simulation** of serverless cold st
 
 Python 3.14.8 was used during development. Python 3.11 or newer is expected to work.
 
+Open a terminal in this `ServerLess-Arch` folder. From the original research folder, use:
+
+```powershell
+cd "C:\Advay study\VIT\SEM 5 Fall 26-27\Operating System - OS\LAB OS Reviews\ServerLess-Arch"
+```
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -25,6 +31,19 @@ The Python core can run without FastAPI:
 ```powershell
 python -c "from simulator import compare; import json; print(json.dumps(compare('burst', 512)['runs']['faascache']['summary'], indent=2))"
 ```
+
+## Folder and Git
+
+This folder is a standalone Git repository. `app.py` serves the API and page, `INDEX.html` contains the interface, `simulator.py` implements the simulation, and `tests/test_simulator.py` checks its behavior. `requirements.txt`, this README, `PROJECT_HANDOFF.md`, and `PROGRESS.md` provide setup and project documentation. The research PDFs remain in the parent folder.
+
+The `origin` remote is `git@github.com:AdvayV/ServerLess-Arch.git`. After GitHub SSH authentication is available, publish with:
+
+```powershell
+git status
+git push -u origin main
+```
+
+The initial source commit is preserved. A local ignored known-hosts file pins GitHub's published SSH host key. No force push is configured; if the remote already contains conflicting history, reconcile it before pushing.
 
 ## What it models
 

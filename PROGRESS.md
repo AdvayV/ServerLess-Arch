@@ -32,7 +32,7 @@
 ## Next steps
 
 - Visually inspect the page in a browser during rehearsal. This environment exposed no browser surface, so automated visual inspection was unavailable.
-- Transfer this local project into the GitHub repository when repository access is available. The provided URL could not be accessed from this environment, and this folder is not a Git checkout.
+- Push the local Git repository to GitHub when SSH authentication is available. Remote access previously failed with `Permission denied (publickey)`.
 - Explore replica-aware marginal retention as a research extension after the lab demo.
 - Add real Docker measurements only when the simulator comparison has been demonstrated and verified.
 
@@ -42,3 +42,9 @@
 - Configured origin as `git@github.com:AdvayV/ServerLess-Arch.git`. GitHub's SSH host key was pinned from its official documentation in a local ignored known-hosts file.
 - Fixed the HTML filename reference to match `INDEX.html` on case-sensitive Linux filesystems. Rechecked: 15 tests passed.
 - Remote inspection was blocked by SSH `Permission denied (publickey)`; HTTPS alternatives also failed certificate validation. Repository contents could not be fetched, so publication must use a normal non-forced push once authentication is available.
+
+## Standalone demo folder - 10 October 2026
+
+- Consolidated demo source, tests, requirements, handoff, and documentation into `ServerLess-Arch`, separate from the research PDFs and manifests.
+- Created a normal Git checkout with its own `.git` directory and preserved the initial source commit. Origin points to `git@github.com:AdvayV/ServerLess-Arch.git`.
+- Updated run and publication instructions for the new folder. Verification from this folder: 15 simulator tests passed.
