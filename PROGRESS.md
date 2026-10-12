@@ -48,3 +48,14 @@
 - Consolidated demo source, tests, requirements, handoff, and documentation into `ServerLess-Arch`, separate from the research PDFs and manifests.
 - Created a normal Git checkout with its own `.git` directory and preserved the initial source commit. Origin points to `git@github.com:AdvayV/ServerLess-Arch.git`.
 - Updated run and publication instructions for the new folder. Verification from this folder: 15 simulator tests passed.
+
+## Exam correction research prototype - 12 October 2026
+
+- Added `ARCHITECTURE.md` first to specify versioned grade-component keys, question-level invalidation, bounded workers and cache, deterministic simulation, and comparison criteria.
+- Added a separate exam-correction simulator and page, without replacing the warm-container demo. The browser page is `/corrections`; the API is `POST /api/corrections`.
+- Implemented synthetic one-correction, correction-burst, and overlapping two-version workloads; fixed two-worker virtual-time queue; FIFO, EDF, and fair EDF scheduling; LRU and cost-aware GDSF-style score-component cache eviction; cache hit/miss/invalidation/eviction counts; and a pre-publication rubric-version guard.
+- Updated the warm-container page with a link to the correction prototype and documented both APIs and the research scope in README.
+- The feature is a systems simulation. It does not grade essays, handle real student records, establish learning outcomes, or claim global algorithmic novelty.
+- Verification: Python syntax compilation, inline JavaScript syntax checking, and `git diff --check` passed. All 23 tests passed, including scoped invalidation, overlapping correction completion, worker capacity, and deadline ordering. A browser walkthrough has not been run.
+- Fixed a regression where a second correction for one cohort discarded another cohort's valid work. Current versions are now scoped per student and question; synthetic deadlines vary to demonstrate priority ordering.
+- GitHub access: the local SSH command was truncated to `C:/Program`, and restricted HTTPS calls failed Windows credential/certificate checks. An HTTPS dry-run outside the restricted process succeeded using existing credentials and a trust exception limited to this checkout. The remote would create `main`; the two existing local commits are preserved.

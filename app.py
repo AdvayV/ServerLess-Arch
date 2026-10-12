@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from corrections import compare as compare_corrections
 from simulator import compare
 
 
@@ -18,14 +19,31 @@ class RunOptions(BaseModel):
     budget_mib: int = 512
 
 
+class CorrectionOptions(BaseModel):
+    scenario: str = "single"
+
+
 @app.get("/")
 def home():
     return FileResponse(ROOT / "INDEX.html")
+
+
+@app.get("/corrections")
+def corrections_home():
+    return FileResponse(ROOT / "CORRECTIONS.html")
 
 
 @app.post("/api/run")
 def run(options: RunOptions):
     try:
         return compare(options.scenario, options.budget_mib)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/corrections")
+def run_corrections(options: CorrectionOptions):
+    try:
+        return compare_corrections(options.scenario)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

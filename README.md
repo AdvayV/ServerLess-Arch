@@ -20,6 +20,8 @@ python -m venv .venv
 
 Open http://127.0.0.1:8000. The page runs one comparison automatically with FaasCache selected. Pick a college situation or memory budget and press **Run comparison**. Select a policy row and use **Next** to follow one student at a time. Each scenario has only 6–8 requests plus one final snapshot. Expand **Memory decisions since the last request** to explain removals. Check **Show LRU and LFU too** for all five policies.
 
+Open http://127.0.0.1:8000/corrections for the **exam answer-key correction** research prototype. It models selective invalidation of question-level grade components, a finite worker pool, FIFO / earliest-deadline / fair-earliest-deadline schedulers, and LRU / cost-aware GDSF cache eviction. Choose one of three synthetic correction scenarios; each comparison replays identical input across six policy combinations. Results are simulation only. The design and scope are in `ARCHITECTURE.md`.
+
 Run the checks with:
 
 ```powershell
@@ -78,7 +80,9 @@ LRU uses the most recent execution completion time. LFU uses cumulative observed
 
 The idle budget is **not a total host memory limit**. Active capacity is assumed sufficient, and active memory peak is tracked separately. Requests never queue. A container larger than the idle budget can run but cannot remain ready after it finishes. Network latency and Docker are not included. All displayed workload timings are illustrative simulation inputs, not measurements of a real platform.
 
-The API is `POST /api/run` with JSON such as `{"scenario":"burst","budget_mib":512}`. It returns all five policies' request outcomes, full event logs, simplified `demo_steps`, memory timelines, and summaries. The short replay groups all removal explanations between arrivals and includes a final pool snapshot; the full log is retained for inspection. Scenarios are `burst`, `shift`, and `steady`. The comparison supports budgets of 0, 128, 256, 384, 512, 768, and 1024 MiB; the page offers the most useful four.
+The existing API is `POST /api/run` with JSON such as `{"scenario":"burst","budget_mib":512}`. It returns all five policies' request outcomes, full event logs, simplified `demo_steps`, memory timelines, and summaries. Scenarios are `burst`, `shift`, and `steady`. The comparison supports budgets of 0, 128, 256, 384, 512, 768, and 1024 MiB; the page offers the most useful four.
+
+The correction API is `POST /api/corrections` with `{"scenario":"single"}`, `{"scenario":"rush"}`, or `{"scenario":"shift"}`. It returns the common workload, six scheduler/cache runs, per-task outcomes, priority decisions, cache metrics, and event logs. Question, submission, rubric, and grader versions are part of component-cache keys. The correction workflow only invalidates old components for the changed question; it checks the current rubric again before publishing a result. Worker capacity and cache capacity are fixed simulation inputs. FIFO and earliest-deadline-first are baselines; fair EDF and GDSF are candidate heuristics, not optimality claims.
 
 Summary metrics include request count, cold and warm starts, cold-start percentage, total startup overhead, average/p95/p99 response latency, idle MiB-ms and average/peak idle memory, peak active memory, evictions, policy decisions, and controller wall-clock milliseconds. Total startup overhead captures the paper's concern that cold starts have different costs; counting misses alone can hide expensive misses. Percentiles use nearest rank. Controller time is measured separately and never added to simulated response latency. The traces are deterministic and identical for all policies.
 
