@@ -38,14 +38,14 @@ python -c "from simulator import compare; import json; print(json.dumps(compare(
 
 This folder is a standalone Git repository. `app.py` serves the API and page, `INDEX.html` contains the interface, `simulator.py` implements the simulation, and `tests/test_simulator.py` checks its behavior. `requirements.txt`, this README, `PROJECT_HANDOFF.md`, and `PROGRESS.md` provide setup and project documentation. The research PDFs remain in the parent folder.
 
-The `origin` remote is `git@github.com:AdvayV/ServerLess-Arch.git`. After GitHub SSH authentication is available, publish with:
+The `origin` remote is `https://github.com/AdvayV/ServerLess-Arch.git`. The implementation has been published to `main`. For subsequent changes, commit them and publish with:
 
 ```powershell
 git status
 git push -u origin main
 ```
 
-The initial source commit is preserved. A local ignored known-hosts file pins GitHub's published SSH host key. No force push is configured; if the remote already contains conflicting history, reconcile it before pushing.
+The initial source commit is preserved. Normal pushes preserve existing history; reconcile any conflicting remote changes before pushing. This checkout uses HTTPS and the existing Git Credential Manager authentication.
 
 ## What it models
 

@@ -32,7 +32,7 @@
 ## Next steps
 
 - Visually inspect the page in a browser during rehearsal. This environment exposed no browser surface, so automated visual inspection was unavailable.
-- Push the local Git repository to GitHub when SSH authentication is available. Remote access previously failed with `Permission denied (publickey)`.
+- The project is published to GitHub on `main`; use the HTTPS origin for subsequent pushes.
 - Explore replica-aware marginal retention as a research extension after the lab demo.
 - Add real Docker measurements only when the simulator comparison has been demonstrated and verified.
 
@@ -58,4 +58,4 @@
 - The feature is a systems simulation. It does not grade essays, handle real student records, establish learning outcomes, or claim global algorithmic novelty.
 - Verification: Python syntax compilation, inline JavaScript syntax checking, and `git diff --check` passed. All 23 tests passed, including scoped invalidation, overlapping correction completion, worker capacity, and deadline ordering. A browser walkthrough has not been run.
 - Fixed a regression where a second correction for one cohort discarded another cohort's valid work. Current versions are now scoped per student and question; synthetic deadlines vary to demonstrate priority ordering.
-- GitHub access: the local SSH command was truncated to `C:/Program`, and restricted HTTPS calls failed Windows credential/certificate checks. An HTTPS dry-run outside the restricted process succeeded using existing credentials and a trust exception limited to this checkout. The remote would create `main`; the two existing local commits are preserved.
+- GitHub publication completed: the local SSH command was truncated to `C:/Program`, and restricted HTTPS calls failed Windows credential/certificate checks. HTTPS outside the restricted process succeeded using existing credentials and a trust exception limited to this checkout. Published the implementation commit `6841863` to `main`, preserving the existing history; changed origin to HTTPS and removed the broken local SSH command. No global Git trust settings were changed.
