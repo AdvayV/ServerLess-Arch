@@ -3,6 +3,29 @@ import pytest
 from simulator import POLICIES, Simulator, compare, workload
 
 
+@pytest.mark.parametrize("value", [True, 128.5, "128", -1])
+def test_invalid_resource_types_are_rejected(value):
+    with pytest.raises(ValueError, match="integer"):
+        Simulator([], "lru", value)
+
+
+@pytest.mark.parametrize("trace", [[{}], [{"id": [], "function": "timetable", "arrival": 0}],
+                                   [{"id": "R1", "function": [], "arrival": 0}],
+                                   [{"id": "R1", "function": "timetable", "arrival": True}]])
+def test_malformed_requests_raise_useful_validation_errors(trace):
+    with pytest.raises(ValueError):
+        Simulator(trace, "lru", 128)
+
+
+def test_trace_is_copied_and_simulator_cannot_be_reused():
+    trace = [{"id": "R1", "function": "timetable", "arrival": 0}]
+    simulator = Simulator(trace, "lru", 128)
+    trace[0]["arrival"] = 999
+    assert simulator.run()["requests"][0]["arrival"] == 0
+    with pytest.raises(ValueError, match="new simulator"):
+        simulator.run()
+
+
 def request(number, time, function):
     return {"id": f"R{number}", "arrival": time, "function": function}
 
@@ -66,17 +89,8 @@ def test_equal_time_completion_before_arrival_and_validation():
     assert not result["requests"][1]["cold"]
     for trace in ([request(1, -1, "timetable")], [request(1, 0, "unknown")],
                   [request(1, 0, "timetable"), request(1, 1, "timetable")]):
-        try:
+        with pytest.raises(ValueError):
             Simulator(trace, "lru", 128)
-            assert False, "Expected validation error"
-        except ValueError:
-            pass
-
-
-def test_example_score_arithmetic_independently():
-    values = [(0.95, 100, 128), (0.70, 1500, 256), (0.05, 2500, 512), (0.40, 800, 128)]
-    scores = [p * startup / memory for p, startup, memory in values]
-    assert [round(score, 3) for score in scores] == [0.742, 4.102, 0.244, 2.5]
 
 
 def test_empty_trace_and_budget_pressure_all_policies():

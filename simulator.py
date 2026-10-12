@@ -7,6 +7,8 @@ from heapq import heappop, heappush
 from math import exp
 from time import perf_counter_ns
 
+from simulation_utils import percentile, require_integer
+
 
 @dataclass(frozen=True)
 class Function:
@@ -68,32 +70,28 @@ def workload(name: str) -> list[dict]:
     ]
 
 
-def percentile(values: list[int], p: float) -> float:
-    """Nearest-rank percentile; zero requests yield zero."""
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    from math import ceil
-    return float(ordered[max(0, ceil(p * len(ordered)) - 1)])
-
-
 class Simulator:
     def __init__(self, trace: list[dict], policy: str, budget: int, *, timeout_ms: int = 1200,
                  horizon_ms: int = 1800, tau_ms: int = 2600):
         if policy not in POLICIES:
             raise ValueError(f"Unknown policy: {policy}")
-        if budget < 0 or timeout_ms < 0 or horizon_ms <= 0 or tau_ms <= 0:
-            raise ValueError("Budget and timeout must be nonnegative; horizon and tau must be positive")
+        require_integer(budget, "Idle memory budget")
+        require_integer(timeout_ms, "Idle timeout")
+        require_integer(horizon_ms, "Prediction horizon", 1)
+        require_integer(tau_ms, "Demand decay", 1)
         ids = set()
         for request in trace:
+            if not isinstance(request, dict) or not {"id", "function", "arrival"} <= request.keys():
+                raise ValueError("Each request needs id, function, and arrival fields")
+            if not isinstance(request["id"], str) or not request["id"]:
+                raise ValueError("Request IDs must be nonempty strings")
             if request["id"] in ids:
                 raise ValueError(f"Duplicate request ID: {request['id']}")
             ids.add(request["id"])
-            if request["function"] not in FUNCTIONS:
+            if not isinstance(request["function"], str) or request["function"] not in FUNCTIONS:
                 raise ValueError(f"Unknown function: {request['function']}")
-            if not isinstance(request["arrival"], int) or request["arrival"] < 0:
-                raise ValueError(f"Invalid arrival for {request['id']}")
-        self.trace = sorted(trace, key=lambda r: (r["arrival"], r["id"]))
+            require_integer(request["arrival"], f"Arrival for {request['id']}")
+        self.trace = sorted((dict(request) for request in trace), key=lambda r: (r["arrival"], r["id"]))
         self.policy = policy
         self.budget = budget
         self.timeout_ms = timeout_ms
@@ -118,6 +116,8 @@ class Simulator:
         self.evictions = 0
         self.decisions = 0
         self.decision_ns = 0
+        self.completed_count = 0
+        self._has_run = False
 
     def schedule(self, time: int, priority: int, kind: str, payload: object) -> None:
         self.sequence += 1
@@ -223,7 +223,7 @@ class Simulator:
         else:
             self.next_container_id += 1
             c = {"id": self.next_container_id, "function": key, "state": "STARTING",
-                 "last_used": self.now, "idle_since": None, "timer": 0, "access_clock": self.gdsf_clock}
+                 "last_used": self.now, "timer": 0, "access_clock": self.gdsf_clock}
             self.containers[c["id"]] = c
             cold = True
             self.schedule(self.now + f.startup, 0, "ready", c["id"])
@@ -242,11 +242,11 @@ class Simulator:
         c = self.containers[container_id]
         c["state"] = "IDLE"
         c["last_used"] = self.now
-        c["idle_since"] = self.now
         c["timer"] += 1
         request = self.requests[request_id]
         request["completion"] = self.now
         request["latency_ms"] = self.now - request["arrival"]
+        self.completed_count += 1
         if self.policy == "timeout":
             self.schedule(self.now + self.timeout_ms, 1, "timeout", (container_id, c["timer"]))
         removed = self.enforce_budget()
@@ -273,12 +273,15 @@ class Simulator:
                  function=c["function"])
 
     def run(self) -> dict:
+        if self._has_run:
+            raise ValueError("Create a new simulator for each run")
+        self._has_run = True
         for request in self.trace:
             self.schedule(request["arrival"], 2, "arrival", request)
         last_completion = 0
         while self.queue:
             time, _, _, kind, payload = heappop(self.queue)
-            if kind == "timeout" and self.requests and len([r for r in self.requests.values() if "completion" in r]) == len(self.trace) and time > last_completion:
+            if self.completed_count == len(self.trace) and time > last_completion:
                 break  # evaluation ends at the last request completion
             self.advance(time)
             if kind == "arrival":
@@ -334,6 +337,7 @@ class Simulator:
 
 
 def compare(scenario: str = "shift", budget: int = 512) -> dict:
+    require_integer(budget, "Idle memory budget")
     if budget not in (0, 128, 256, 384, 512, 768, 1024):
         raise ValueError("Budget must be one of 0, 128, 256, 384, 512, 768, or 1024 MiB")
     trace = workload(scenario)

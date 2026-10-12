@@ -1,63 +1,93 @@
-# Exam Correction Simulator: Architecture
+# Simulation architecture
 
-## Goal
-
-Add a separate, reproducible workload to the existing serverless lab demo. The scenario models an institution correcting one exam question after grading. Only score components that depend on the corrected rubric are recomputed; results tied to unchanged rubric versions remain reusable. A finite worker pool makes queue scheduling measurable.
-
-This is a simulation feature, not a grading product. It uses synthetic submissions and deterministic grading costs. It does not make student decisions or handle real learner records.
-
-## Components and flow
+## Shared structure
 
 ```mermaid
-flowchart TD
-    A[Correction notice with new rubric version] --> B[Versioned score component store]
-    B --> C[Find entries depending on corrected question]
-    C --> D[Invalidate those cache keys]
-    D --> E[Create one regrade job per affected submission]
-    E --> F[Virtual-time ready queue]
-    F --> G[Finite worker pool]
-    G --> H[Check rubric version before publish]
-    H --> I[Store corrected component and update score]
-    F --> J[Priority policy]
-    J --> F
-    D --> K[Cache memory budget and eviction policy]
-    I --> K
+flowchart LR
+    UI[Browser controls] --> API[FastAPI validation]
+    API --> Input[Common synthetic workload]
+    Input --> Warm[Container retention engine]
+    Input --> Correction[Correction scheduling engine]
+    Warm --> Output[Metrics and event logs]
+    Correction --> Output
+    Output --> UI
 ```
 
-### Request and data model
+Both engines use event heaps and virtual milliseconds. Each comparison creates a fresh engine for every policy combination; an engine can run once. Decisions observe only events already processed. Deterministic ties make workload outcomes repeatable. Policy overhead is measured with the host clock, varies between runs, and is excluded from virtual latency. Percentiles use nearest rank; empty samples return zero.
 
-- A cached component key includes exam, submission content version, question, rubric version, and grader version. An old result can never satisfy a lookup for a new rubric version.
-- A correction identifies affected students and invalidates only their entries for the changed question and old rubric version. The small prototype scans its bounded cache; a larger deployment would add an index over those fields. The current rubric version is tracked per student and question so corrections to one cohort do not supersede another cohort's work.
-- Work items contain an ID, student ID, release time, absolute deadline, estimated service duration, question, and target rubric version. IDs break all scheduling ties deterministically.
-- Synthetic exams contain several independently graded questions so that selective invalidation leaves valid cached components to reuse.
+## Warm-container engine
 
-### Event engine
+### Workload and capacity
 
-Use virtual milliseconds and a discrete-event heap. Completion events run before simultaneous releases. Work in progress is not canceled. Before publishing a result, the worker compares its target rubric version with the current version. A stale result is discarded and the newest version is queued if required. Idle workers immediately receive the next ready job. Capacity is fixed for each run and requests queue instead of creating unbounded workers.
+| Function | Memory MiB | Startup ms | Execution ms |
+| --- | ---: | ---: | ---: |
+| Timetable | 128 | 100 | 20 |
+| Assignment | 256 | 1500 | 80 |
+| Semester report | 512 | 2500 | 150 |
+| Fee payment | 128 | 800 | 60 |
 
-### Scheduling policies
+`steady` calls each service twice (eight requests); `burst` has overlapping assignments (six); `shift` moves from timetable to report requests (six).
 
-- FIFO: earliest release time, then work ID.
-- EDF: earliest absolute deadline, then release time and work ID.
-- Fair EDF: remaining time to the deadline plus a per-student accumulated-service penalty, minus half the waiting age. Service advances by estimated duration after dispatch, with equal weights per student. This is a fairness heuristic without a guaranteed starvation bound.
+A container follows `STARTING → BUSY → IDLE → EVICTED`; reuse transitions `IDLE → BUSY`. One container serves one request at a time. Starting and busy containers are protected. Active capacity is assumed sufficient, so requests do not queue. The budget limits idle memory after completions. An oversized container can execute, then must be evicted.
 
-The initial fair-share is equal per student. Priority component values are returned with each dispatch for explanation. The policy is a heuristic; no optimality guarantee is claimed.
+At equal timestamps, startup/execution completions precede idle timeouts, then arrivals ordered by request ID. Events created with higher priority at the current timestamp run before the next arrival. Timeout tokens prevent an old timer from removing a reused container. Evaluation stops at the last request completion; idle memory is integrated from time zero to that point.
 
-### Result cache
+### Retention policies
 
-- Versioned keys provide correctness and local invalidation; no global flush is needed for a one-question correction.
-- Cache hits update recency, access frequency, and estimated recomputation cost.
-- When a storage budget is exceeded, compare LRU with a size/cost/frequency-aware Greedy-Dual score. Retain deterministic tie breakers. Cache capacity is expressed in score-component units for easy inspection.
-- Store cache counters for hits, misses, invalidations, admissions, and evictions. Cache loss may cause recomputation but never changes correctness.
+| Policy | Eviction rule |
+| --- | --- |
+| Timeout + LRU | Expire after 1,200 ms idle; use LRU for earlier memory pressure |
+| LRU | Lowest execution-completion recency |
+| LFU | Lowest cumulative invocation count per function, then recency |
+| Adapted FaasCache GDSF | Lowest `access_clock + function_frequency × startup_ms / memory_mib` |
+| Recent demand | Lowest `estimated_reuse_probability × startup_ms / memory_mib` |
 
-### Interface and comparison
+GDSF advances its logical clock on eviction. Each container records that clock when accessed. Function frequency resets when its last live copy is evicted. Recency and container ID break score ties.
 
-Keep the college cold-start interface and its `/api/run` behavior. Add `/corrections` and `/api/corrections` as a distinct feature. Every scheduler and cache policy receives identical synthetic submissions, deadlines, correction events, worker count, and cache budget. Report completion latency, p95, deadline misses, queue wait, recomputed components, cache activity, and worker busy time. All outputs identify themselves as simulated.
+Recent demand decays observed request counts with a 2,600 ms time constant and estimates reuse over 1,800 ms under a Poisson assumption. Every idle copy receives its function's score. Irregular arrivals and duplicate copies can undermine that estimate; it has no optimality guarantee.
 
-### First implementation boundary
+Metrics include cold/warm starts, total startup overhead, response latency, idle MiB-ms, average/peak idle memory, peak active memory, evictions and policy overhead. Request replay groups intervening removals for presentation while retaining the full event log.
 
-Implement deterministic correction scenarios, including an overlapping amendment, selective versioned invalidation, three schedulers, two cache eviction policies, finite workers, varied synthetic appeal deadlines, JSON API, and a small explainer page. Defer actual OCR/essay grading, real student data, multi-server placement, learning-outcome measurement, and Docker execution.
+## Exam correction engine
 
-### Acceptance evidence
+### Input and versioning
 
-Use independent scenarios that expose (1) only changed-question entries being invalidated, (2) identical workload replay across policy choices, (3) FIFO versus deadline ordering, (4) fair service across students during a burst, (5) valid cache entries surviving an unrelated correction, and (6) stale work being prevented from publishing. Record actual verification separately from simulated results.
+The model contains 16 synthetic students, four questions, two workers and a cache capacity of 48 equal-sized components. A cache key is:
+
+```text
+(exam, student, submission_version, question, rubric_version, grader_version)
+```
+
+Current rubric versions are tracked per student and question. A correction changes only its named students and question, invalidates their old-version keys, and creates one job per changed component. Repeated notices for an already current version create no jobs or cache probes.
+
+| Scenario | Correction events | Base deadline offset |
+| --- | --- | ---: |
+| `single` | At 0 ms, q2 changes for eight students | 500 ms |
+| `rush` | At 0 ms, q2 changes for all 16 | 300 ms |
+| `shift` | At 0 ms, q2 changes for ten; at 40 ms, changes again for the first four | 350 ms |
+
+Job duration is `45 + (student_index % 4) × 20` ms. Absolute deadlines add the scenario offset and repeating student offsets `120, 0, -80, 60` ms to the correction time.
+
+### Queue and publication
+
+At one timestamp, completions precede correction notices; all those events are processed before new dispatches. Already running jobs finish. Their target version is checked against the current version at completion, and stale results are discarded. Queued jobs superseded by a correction are removed without consuming worker time. A replacement job waits if the same student's question is already running. Every created job ends as `published`, `discarded_stale` or `superseded`.
+
+| Scheduler | Priority, lowest first |
+| --- | --- |
+| FIFO | Release time, creation sequence, ID |
+| EDF | Absolute deadline, release time, sequence, ID |
+| Fair EDF | Remaining deadline time + accumulated student service − half waiting age; then EDF ties |
+
+Fair EDF charges the student's estimated duration on dispatch, with equal student weights. This is a heuristic without a starvation guarantee.
+
+### Result cache and metrics
+
+The cache stores component metadata, not numeric grades. Initialization attempts to seed 64 old-version components into 48 slots. These 16 setup evictions are reported separately from runtime evictions. Unchanged questions are probed on correction: hits update frequency, recency and access clock. A probe miss does **not** schedule additional work. Consequently, cache policy changes cache activity, but does not change job duration or queue latency in this model.
+
+LRU evicts the least recent entry. GDSF uses `access_clock + accesses × recomputation_cost_ms` because every entry has unit size. Its logical clock advances on eviction. Updating an existing entry refreshes its cost, frequency, recency and access clock. Corrections invalidate only the relevant old-version entries; other students and questions retain their versions.
+
+Published counts and deadline/latency metrics describe individual published jobs, including jobs published before a later amendment. They are not final student grades. Recomputed components count executed jobs, including discarded stale work; superseded queued jobs consume no execution. Queue wait covers dispatched jobs. Cache counters report hits, misses, invalidations, admissions, runtime evictions and initial evictions. Worker busy time includes all executed work.
+
+## Boundaries
+
+There is no actual grading, aggregate-score calculation, Docker backend, network delay, cloud deployment or measured learning outcome. These examples explain algorithm behavior. The adapted policies and synthetic timings require larger traces and external measurements before drawing research conclusions.

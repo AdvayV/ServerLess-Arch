@@ -1,26 +1,32 @@
-"""Small web interface for the serverless retention simulator."""
+"""Web interfaces and JSON APIs for both virtual-time simulations."""
 
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
 
 from corrections import compare as compare_corrections
 from simulator import compare
 
 
-app = FastAPI(title="College Portal: Warm or Cold?", description="An explainable serverless memory demo")
+app = FastAPI(title="Serverless Simulations", description="Virtual-time caching and scheduling comparisons")
 ROOT = Path(__file__).resolve().parent
+app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
-class RunOptions(BaseModel):
-    scenario: str = "shift"
-    budget_mib: int = 512
+class SimulationOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
-class CorrectionOptions(BaseModel):
-    scenario: str = "single"
+class RunOptions(SimulationOptions):
+    scenario: StrictStr = "shift"
+    budget_mib: StrictInt = 512
+
+
+class CorrectionOptions(SimulationOptions):
+    scenario: StrictStr = "single"
 
 
 @app.get("/")
