@@ -7,6 +7,7 @@ from heapq import heappop, heappush
 from math import exp
 from time import perf_counter_ns
 
+from replica_value import ShadowWarmPool, erlang_marginal_rates, expected_extra_hits
 from simulation_utils import percentile, require_integer
 
 
@@ -40,13 +41,15 @@ SCENARIOS = {
     },
 }
 
-POLICIES = ("timeout", "faascache", "adaptive", "lru", "lfu")
+POLICIES = ("timeout", "faascache", "adaptive", "lru", "lfu", "erlang", "marginal")
 POLICY_NAMES = {
     "timeout": "Fixed timeout + LRU",
     "lru": "Least recently used",
     "lfu": "Least frequently used",
     "faascache": "FaasCache GDSF (adapted)",
     "adaptive": "Recent-demand variation",
+    "erlang": "Poisson marginal value (experimental)",
+    "marginal": "Value of each warm copy (experimental)",
 }
 
 
@@ -104,6 +107,10 @@ class Simulator:
         self.next_container_id = 0
         self.requests: dict[str, dict] = {}
         self.history: dict[str, dict] = {key: {"q": 0.0, "updated": 0, "count": 0} for key in FUNCTIONS}
+        self.shadow_pools = {
+            key: ShadowWarmPool(function.execution, tau_ms)
+            for key, function in FUNCTIONS.items()
+        } if policy == "marginal" else {}
         # Paper section 4.1: shared frequency, individual access clock, and
         # a server logical clock advanced by evictions (not wall-clock time).
         self.gdsf_frequency = {key: 0 for key in FUNCTIONS}
@@ -116,6 +123,7 @@ class Simulator:
         self.evictions = 0
         self.decisions = 0
         self.decision_ns = 0
+        self.observation_ns = 0
         self.completed_count = 0
         self._has_run = False
 
@@ -147,10 +155,14 @@ class Simulator:
         self.now = time
 
     def observe(self, function: str) -> None:
+        start = perf_counter_ns()
         h = self.history[function]
         h["q"] = h["q"] * exp(-(self.now - h["updated"]) / self.tau_ms) + 1
         h["updated"] = self.now
         h["count"] += 1
+        if self.policy == "marginal":
+            self.shadow_pools[function].observe(self.now)
+        self.observation_ns += perf_counter_ns() - start
 
     def score(self, c: dict) -> tuple[float, float, float]:
         f = FUNCTIONS[c["function"]]
@@ -166,11 +178,35 @@ class Simulator:
             return (self.history[c["function"]]["count"], c["last_used"], c["id"])
         if self.policy == "faascache":
             return (self.gdsf_priority(c), c["last_used"], c["id"])
+        if self.policy in ("erlang", "marginal"):
+            return (self.replica_value(c["function"])["marginal_saved_ms_per_mib"], c["last_used"], c["id"])
         return (self.score(c)[0], c["last_used"], c["id"])
 
     def gdsf_priority(self, c: dict) -> float:
         f = FUNCTIONS[c["function"]]
         return c["access_clock"] + self.gdsf_frequency[c["function"]] * f.startup / f.memory
+
+    def active_return_times(self, function: str) -> list[int]:
+        return [c["available_at"] for c in self.containers.values()
+                if c["function"] == function and c["state"] in ("STARTING", "BUSY")]
+
+    def replica_value(self, function: str) -> dict:
+        """Value of retaining the last currently idle copy, in ms per MiB."""
+        config = FUNCTIONS[function]
+        idle_copies = sum(c["function"] == function and c["state"] == "IDLE"
+                          for c in self.containers.values())
+        returns = self.active_return_times(function)
+        if self.policy == "marginal":
+            rates = self.shadow_pools[function].rates(self.now)
+        else:
+            history = self.history[function]
+            rate = history["q"] * exp(-(self.now - history["updated"]) / self.tau_ms) / self.tau_ms
+            rates = erlang_marginal_rates(rate, config.execution, idle_copies + len(returns))
+        extra_hits = expected_extra_hits(rates, idle_copies, returns, self.now, self.horizon_ms)
+        return {"marginal_saved_ms_per_mib": config.startup * extra_hits / config.memory,
+                "expected_extra_hits": extra_hits,
+                "idle_copies_before_eviction": idle_copies,
+                "active_copies": len(returns)}
 
     def enforce_budget(self) -> list[dict]:
         start = perf_counter_ns()
@@ -178,13 +214,24 @@ class Simulator:
         removed = []
         while self.idle_memory() > self.budget:
             candidates = [c for c in self.containers.values() if c["state"] == "IDLE"]
-            victim = min(candidates, key=self.eviction_key)
+            if self.policy in ("erlang", "marginal"):
+                values = {function: self.replica_value(function)
+                          for function in {c["function"] for c in candidates}}
+                victim = min(candidates, key=lambda c: (
+                    values[c["function"]]["marginal_saved_ms_per_mib"], c["last_used"], c["id"]))
+            else:
+                victim = min(candidates, key=self.eviction_key)
             score, probability, intensity = self.score(victim)
             priority = self.gdsf_priority(victim)
             victim["state"] = "EVICTED"
             victim["timer"] += 1
             self.evictions += 1
-            if self.policy == "faascache":
+            if self.policy in ("erlang", "marginal"):
+                detail = values[victim["function"]]
+                reason = (f"Lowest marginal value ({detail['marginal_saved_ms_per_mib']:.4f} ms/MiB): "
+                          f"keeping this copy adds an estimated {detail['expected_extra_hits']:.3f} warm hits "
+                          f"over {self.horizon_ms} ms, accounting for {detail['active_copies']} active copies.")
+            elif self.policy == "faascache":
                 self.gdsf_clock = max(self.gdsf_clock, priority)
                 reason = (f"Lowest paper-rule priority ({priority:.3f}): access clock plus "
                           "invocation frequency × startup cost ÷ memory. The logical clock advances after removal.")
@@ -198,11 +245,16 @@ class Simulator:
                 reason = f"Its function had {self.history[victim['function']]['count']} observed requests, the lowest frequency."
             else:
                 reason = "It was the least recently completed idle container."
-            removed.append({"container_id": victim["id"], "function": victim["function"],
-                            "score": round(score, 4), "reuse_probability": round(probability, 4),
-                            "estimated_rate_per_ms": round(intensity, 6),
-                            "gdsf_priority": round(priority, 4), "logical_clock": round(self.gdsf_clock, 4),
-                            "reason": reason})
+            record = {"container_id": victim["id"], "function": victim["function"],
+                      "score": round(score, 4), "reuse_probability": round(probability, 4),
+                      "estimated_rate_per_ms": round(intensity, 6),
+                      "gdsf_priority": round(priority, 4), "logical_clock": round(self.gdsf_clock, 4),
+                      "reason": reason}
+            if self.policy in ("erlang", "marginal"):
+                for name in ("score", "reuse_probability", "estimated_rate_per_ms"):
+                    record.pop(name)
+                record.update(detail)
+            removed.append(record)
         self.peak_idle = max(self.peak_idle, self.idle_memory())
         self.decision_ns += perf_counter_ns() - start
         return removed
@@ -230,6 +282,7 @@ class Simulator:
             self.schedule(self.now + f.startup + f.execution, 0, "complete", (c["id"], request["id"]))
             message = f"{f.name} request {request['id']} needed new container #{c['id']}: {f.startup} ms startup wait."
         c["access_clock"] = self.gdsf_clock
+        c["available_at"] = self.now + (f.startup if cold else 0) + f.execution
         self.requests[request["id"]] = {"id": request["id"], "function": key,
                                          "arrival": self.now, "cold": cold,
                                          "startup_ms": f.startup if cold else 0,
@@ -330,6 +383,7 @@ class Simulator:
                         "peak_idle_mib": self.peak_idle, "peak_active_mib": self.peak_active,
                         "evictions": self.evictions, "policy_decisions": self.decisions,
                         "controller_ms": round(self.decision_ns / 1_000_000, 3),
+                        "observation_ms": round(self.observation_ns / 1_000_000, 3),
                         "evaluation_ms": interval},
             "requests": requests, "events": self.events, "demo_steps": demo_steps,
             "memory_timeline": self.timeline,

@@ -11,6 +11,8 @@ const names = {
   adaptive: "Recent-demand variation",
   lru: "Most recent (LRU)",
   lfu: "Most frequent (LFU)",
+  erlang: "Poisson marginal value",
+  marginal: "Value of each warm copy",
 };
 const descriptions = {
   timeout: "Keep a container until its fixed idle timer expires. If memory fills sooner, remove the least recently used.",
@@ -18,6 +20,8 @@ const descriptions = {
   lru: "Keep the containers used most recently.",
   lfu: "Keep containers whose functions have received the most requests so far.",
   adaptive: "Experimental: older requests gradually lose influence. Estimate near-term reuse and weigh the startup time saved against memory used.",
+  erlang: "Experimental: use a Poisson concurrency model to estimate the extra warm hits supplied by another copy. Value startup delay avoided per MiB and credit busy copies only after they finish.",
+  marginal: "Experimental: replay past arrivals in a virtual pool with no startup delay. Learn which extra copies serve real overlap, then value their additional warm hits per MiB. Busy copies contribute only after completion.",
 };
 
 function updateEvent() {
@@ -73,7 +77,7 @@ function render() {
   const focus = runs[selected].summary;
   $("result-sub").textContent = `${data.trace.length} student requests · ${data.scenario_title}. Viewing: ${names[selected]}.`;
   $("scenario-story").textContent = data.scenario_description;
-  $("insight").textContent = `FaasCache had ${runs.faascache.summary.cold_starts} cold starts; the recent-demand variation had ${runs.adaptive.summary.cold_starts}. This is a small illustration, not evidence of a general winner.`;
+  $("insight").textContent = `FaasCache had ${runs.faascache.summary.cold_starts} cold starts; recent demand had ${runs.adaptive.summary.cold_starts}; valuing each warm copy had ${runs.marginal.summary.cold_starts}. These short traces illustrate decisions. Policy rankings can change with the workload.`;
   $("p95-text").textContent = `${focus.p95_latency_ms} ms`;
   $("evictions-text").textContent = focus.evictions;
   $("startup-text").textContent = `${format(focus.startup_overhead_ms)} ms`;

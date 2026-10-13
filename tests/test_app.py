@@ -24,11 +24,11 @@ def test_simulation_pages_are_served(path):
 
 
 @pytest.mark.parametrize("scenario", ["steady", "burst", "shift"])
-def test_warm_api_replays_all_five_policies(scenario):
+def test_warm_api_replays_all_seven_policies(scenario):
     response = client.post("/api/run", json={"scenario": scenario, "budget_mib": 512})
     assert response.status_code == 200
     data = response.json()
-    assert len(data["runs"]) == 5
+    assert len(data["runs"]) == 7
     expected = [(request["id"], request["arrival"], request["function"]) for request in data["trace"]]
     for run in data["runs"].values():
         assert [(request["id"], request["arrival"], request["function"]) for request in run["requests"]] == expected

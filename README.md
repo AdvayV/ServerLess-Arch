@@ -2,7 +2,7 @@
 
 Two virtual-time simulations for studying caching and scheduling:
 
-- **Warm or cold?** compares five policies for retaining idle serverless containers under a memory budget.
+- **Warm or cold?** compares seven policies for retaining idle serverless containers under a memory budget, including two experimental methods that value extra warm copies.
 - **When the key changes** compares three schedulers and two result-cache policies for selective exam regrading after rubric corrections.
 
 Inputs are small, deterministic synthetic workloads. These simulations do not execute cloud services, grade real submissions, or establish that a policy is superior.
@@ -51,6 +51,8 @@ Each response contains the common workload, policy runs, summaries, and event lo
 | `simulator.py` | Container lifecycle, idle retention, request traces and metrics |
 | `corrections.py` | Versioned result cache, finite workers, scheduling and correction traces |
 | `simulation_utils.py` | Shared integer validation and nearest-rank percentiles |
+| `replica_value.py` | Shadow warm-pool history, Erlang increments and marginal copy values |
+| `experiments/` | Seeded policy comparisons, results and evaluation protocol |
 | `app.py` | FastAPI routes and static assets |
 | `INDEX.html`, `CORRECTIONS.html`, `static/` | Interfaces, styles and browser scripts |
 | `tests/`, `pytest.ini` | Regression checks and test discovery |
@@ -64,3 +66,9 @@ Research papers and archived handoff/backup files are outside this repository.
 The warm-container GDSF policy adapts [FaasCache: Keeping Serverless Computing Alive with Greedy-Dual Caching (ASPLOS 2021)](https://homes.luddy.indiana.edu/prateeks/papers/faascache-asplos21.pdf). Its score uses access clocks, function frequency, configured startup cost and memory size. This model constrains **idle** memory and assumes sufficient active capacity; the paper's platform constrains warm and running containers together. Startup costs here are illustrative constants.
 
 The recent-demand retention rule and fair EDF scheduler are experimental heuristics. The small traces help explain their behavior; novelty, fairness guarantees and performance improvements require separate research evidence.
+
+## Experimental value of extra copies
+
+The original `adaptive` policy gives a function's idle copies the same reuse-probability score regardless of how many copies already exist. The new `marginal` policy replays observed arrivals in a virtual pool with no startup delay, occupying each slot for the configured execution duration. It estimates the additional warm hits supplied by another slot, weights startup delay avoided per MiB, and credits active copies only after their known completion. `erlang` estimates the same fixed-pool quantity under a stationary Poisson model.
+
+Both remain experimental. In the included held-out synthetic study, `marginal` reduces total startup delay by 15.5% against `adaptive`, but loses 17 of 54 individual comparisons and performs worse on repeated simultaneous batches. The original methods remain available. See [the evaluation protocol](experiments/README.md) for assumptions, formulas and reproduction commands.
