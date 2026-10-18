@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>When a student record changes | Aid reassessment</title>
+  <link rel="stylesheet" href="/static/reassessments.css">
+</head>
+<body>
+  <header><div class="wrap">
+    <div class="eyebrow">College workflows | Research prototype</div>
+    <h1>When a student record changes</h1>
+    <p>Recheck the affected evidence, reuse results that are still valid, and assemble a complete case for staff review.</p>
+  </div></header>
+  <main class="wrap">
+    <section class="panel">
+      <h2>Compare the work needed for a case</h2>
+      <p class="sub">Every run receives the same synthetic records and updates. The demo checks academic eligibility, household income and evidence verification.</p>
+      <div class="controls">
+        <label>What happens?<select id="scenario">
+          <option value="amendments">Updates while work is running</option>
+          <option value="reuse">Repeated requests for unchanged records</option>
+          <option value="pressure">Eight students compete for cache space</option>
+        </select></label>
+        <label>Workers<select id="workers"><option>1</option><option selected>2</option><option>4</option></select></label>
+        <label>Stored check results<select id="capacity"><option>0</option><option>1</option><option>4</option><option selected>12</option><option>24</option></select></label>
+        <button id="run" class="primary">Run comparison</button>
+      </div>
+      <p class="hint" id="story" aria-live="polite"></p>
+      <div id="error" class="error hidden" role="alert"></div>
+      <p class="note">Illustrative rules: CGPA at least 8.00, annual household income at most INR 300,000, and verified evidence. The updates scenario changes the CGPA threshold to 8.20. These are invented demo rules, not VIT policy or award decisions.</p>
+    </section>
+    <section class="panel hidden" id="results">
+      <h2>Does reuse avoid actual computation?</h2>
+      <p class="sub">Select a row to inspect its complete case results and event trace. Computation is the sum of worker execution time, including stale work.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Queue rule</th><th>Reuse strategy</th><th>Cases published</th><th>Compute time</th><th>Mean case latency</th><th>Deadline misses</th><th>Cache hits</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+      <p class="insight" id="insight" aria-live="polite"></p>
+      <div class="metrics" id="metrics"></div>
+      <h2>Published cases and their evidence</h2>
+      <p class="sub">Passing all three demo checks sends a case to staff review. Every published outcome is checked against an independent uncached evaluator.</p>
+      <div class="cases" id="cases"></div>
+      <h2>Follow the selected run</h2>
+      <p class="note" id="resource-note"></p>
+      <details><summary>Show component jobs</summary><div class="scroll"><table>
+        <thead><tr><th>Job</th><th>Student</th><th>Check</th><th>Record / rule version</th><th>Status</th><th>Started</th><th>Finished</th></tr></thead>
+        <tbody id="jobs"></tbody>
+      </table></div></details>
+      <details><summary>Show the event trace</summary><div class="timeline" id="timeline"></div></details>
+    </section>
+    <section class="panel">
+      <h2>What this demonstration implements</h2>
+      <p>A valid cache hit supplies an actual computed check result. A miss creates or joins a shared job. Delivered values remain in the case accumulator even if their cache entries are later evicted. Updates replace pending case generations while preserving their original deadlines. A case publishes only when all check versions match its current target.</p>
+      <p>At an equal timestamp, updates take effect before completions and publication. The no-cache baseline still shares overlapping jobs and preserves delivered values within a pending request. Full recomputation additionally disables that sharing and carry-over. Both baselines retain the same worker and version-safety rules.</p>
+      <p>All values and durations are synthetic. This engine models a finite worker pool and result-cache slots; connecting worker jobs to container startup and retention is a later step. The result-cache budget does not bound total host memory.</p>
+      <nav><a href="/">Warm-container study</a><a href="/corrections">Exam correction study</a></nav>
+    </section>
+  </main>
+  <script type="module" src="/static/reassessments.js"></script>
+</body>
+</html>

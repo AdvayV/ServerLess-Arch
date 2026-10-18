@@ -10,10 +10,12 @@ flowchart LR
     Input --> Correction[Correction scheduling engine]
     Warm --> Output[Metrics and event logs]
     Correction --> Output
+    Input --> Aid[Dependency-driven aid reassessment]
+    Aid --> Output
     Output --> UI
 ```
 
-Both engines use event heaps and virtual milliseconds. Each comparison creates a fresh engine for every policy combination; an engine can run once. Decisions observe only events already processed. Deterministic ties make workload outcomes repeatable. Policy overhead is measured with the host clock, varies between runs, and is excluded from virtual latency. Percentiles use nearest rank; empty samples return zero.
+All three engines use event heaps and virtual milliseconds. Each comparison creates a fresh engine for every policy combination; an engine can run once. Decisions observe only events already processed. Deterministic ties make workload outcomes repeatable. Policy overhead is measured with the host clock, varies between runs, and is excluded from virtual latency. Percentiles use nearest rank; empty samples return zero.
 
 ## Warm-container engine
 
@@ -96,74 +98,62 @@ Published counts and deadline/latency metrics describe individual published jobs
 
 There is no actual grading, aggregate-score calculation, Docker backend, network delay, cloud deployment or measured learning outcome. These examples explain algorithm behavior. The adapted policies and synthetic timings require larger traces and external measurements before drawing research conclusions.
 
-## Proposed next iteration: correction dependencies and cache-driven work
+## Dependency-driven aid reassessment
 
-This section is a design draft. It assumes the next focus is a local exam-correction simulation; the scope is awaiting discussion. The preceding sections describe the implemented system.
+This iteration is implemented in `reassessment.py`, `aid_domain.py` and `result_cache.py`, with an API at `/api/reassessments` and a browser interface at `/reassessments`. It uses synthetic financial-aid checks and keeps the original exam-correction engine as a separate study.
 
-### Objective
+### Data and ownership
 
-Measure how result caching and scheduling jointly affect the time needed to publish a current result after overlapping corrections. Cache misses must have an execution cost. The unit of completion becomes a consistent result for one student's requested rubric snapshot, rather than an individual published job.
+| Module | Responsibility |
+| --- | --- |
+| `aid_domain.py` | Immutable component keys and computed check values; separate uncached reference evaluator |
+| `result_cache.py` | Bounded equal-slot LRU/GDSF storage of actual results and recomputation costs |
+| `reassessment.py` | Version state, snapshot generations, dependency planning, exact-key work registry, finite workers, scheduling, publication and metrics |
+| `app.py` and `static/reassessments.js` | Validated configuration and display of policy comparisons, cases, component jobs and events |
 
-### Flow and ownership
+Each record has academic CGPA in hundredths, annual household income in INR, and a boolean evidence-verification flag. The three illustrative rules are CGPA at least 8.00, income at most INR 300,000, and verified evidence. The amendments scenario changes the academic rule to 8.20. These are invented rules, not VIT policy. Outputs explain checks for staff review; they do not award financial aid.
+
+A component key includes application, student, check, the scoped record version, the check's rule version and evaluator version. Only that check's input is included in its dependency version. Rule updates affect the named check for all students; record updates affect the named students and check. A repeated version/value is a no-op. Regressing a version or changing its value without advancing the version is rejected.
+
+### Execution flow
 
 ```mermaid
 flowchart TD
-    Trace[Workload and correction events] --> Engine[Virtual-time engine]
-    Engine --> Versions[Current versions and snapshot generations]
-    Versions --> Planner[Component dependency planner]
-    Planner --> Cache[Versioned result cache]
-    Cache -->|Hit: deliver component| Aggregate[Snapshot accumulator]
-    Cache -->|Miss| Inflight[Work registry: one job per component key]
-    Inflight --> Queue[Ready queue and scheduling policy]
-    Queue --> Workers[Finite worker pool]
+    Events[Requests and versioned updates] --> Versions[Current records and rule versions]
+    Versions --> Targets[Pending request snapshot generations]
+    Targets --> Plan[Resolve every required component]
+    Plan --> Cache[Exact-version result cache]
+    Cache -->|Hit| Values[Snapshot accumulator]
+    Cache -->|Miss| Registry[Create or join exact-key job]
+    Registry --> Queue[Only work with live subscribers]
+    Queue --> Workers[Finite non-preemptive worker pool]
     Workers --> Gate[Check component version at completion]
     Gate -->|Current| Cache
-    Gate -->|Current: deliver to subscribers| Aggregate
-    Gate -->|Obsolete| Waste[Record wasted execution]
-    Aggregate --> Publish[Publish only a complete current snapshot]
+    Gate -->|Deliver directly to subscribers| Values
+    Gate -->|Obsolete| Discard[Record stale execution]
+    Values --> Publish[Complete current vector and generation check]
+    Publish --> Oracle[Verify against independent uncached evaluator]
+    Oracle --> Review[Publish explained case for staff review]
 ```
 
-The engine alone advances time and mutates run state. Policies select jobs or eviction victims; they do not publish results or change version state. The planner determines dependencies. The work registry deduplicates simultaneous requests for the same exact component key. The publisher verifies the full target version vector and generation before accepting a snapshot.
+A hit delivers an immutable computed value. A miss creates one computation or joins the job already registered for that exact key. Every job has a unique ID separate from its key. Jobs capture immutable input values and compute their result at completion, after consuming their configured virtual duration. An academic job costs 40 ms, income 100 ms and evidence 60 ms in the demonstration inputs.
 
-### Data and correctness rules
+At a timestamp, record/rule updates precede completions, then new requests and cancellations. The engine then refreshes pending targets, plans dependencies, cancels orphaned queued jobs, publishes complete snapshots and dispatches. Completions are never published before same-time updates have taken effect. A same-time cancellation also prevents case publication.
 
-- Keep the existing component key, including student, submission, question, rubric and grader versions.
-- Give every requested student snapshot a unique ID, generation, target version vector, release time and absolute deadline. Job IDs are distinct from component keys so job histories cannot overwrite one another.
-- Cache entries contain deterministic synthetic component values, their size, recomputation cost and policy metadata. Synthetic values let the simulator check the final aggregate independently of scheduling order.
-- Resolve all required questions: a hit satisfies a dependency; a miss creates or joins a computation. A result request completes only after every dependency is satisfied.
-- A correction replaces affected snapshot targets. Unchanged exact-version components remain reusable. Remove queued computations with no live subscribers; running work finishes and is checked before admission or delivery.
-- Deduplicate by full component key, allowing many snapshot subscribers to share one computation. Canceling one subscriber must not cancel work another current subscriber needs.
-- Consume delivered values into the snapshot accumulator. Later cache eviction must not undo a satisfied dependency. Report cache storage separately from transient accumulator storage.
-- Preserve a pending request's absolute deadline through amendments. A new request has its own deadline; version changes must not silently extend existing deadlines.
-- At an equal timestamp, apply corrections before accepting completions, then resolve dependencies and dispatch. This proposed ordering makes the correction effective for every publication at that timestamp. It intentionally differs from the current completion-first engine and needs explicit regression coverage.
+A changed target supersedes the old generation. The logical request keeps its original release and absolute deadline. Valid delivered values can be carried into its replacement generation, even if evicted from the cache. Planning reattaches unchanged in-flight work before cancelling jobs that have lost all subscribers. Cancelling one request never removes work still required by another subscriber. Running orphaned jobs finish; obsolete versions are discarded before cache admission or delivery.
 
-### Policies and resource model
+FIFO uses creation/release ordering. EDF uses the earliest absolute deadline among a job's current subscribers. Fair EDF adds per-student dispatched service and waiting-age relief. Dispatch prevents simultaneous jobs for the same student/check, including different versions. There is no starvation proof.
 
-Start with FIFO and EDF scheduling, then compare the existing fair EDF heuristic. Keep LRU and equal-size GDSF as result-cache baselines. Scheduling considers only ready jobs with unsatisfied live demand; cache hits consume no worker slot. Cache lookup, grading and aggregation durations are configured virtual costs shared across policies.
+Publication requires every component, the request's current generation and the full current key vector. Its boolean results are checked against an independent evaluator reading the current raw record and rules. Failure of this invariant raises an error rather than silently accepting the result. A published case remains historical after a later amendment; another request is required to reassess it. The API's `current_at_end` flag distinguishes such historical output from current output.
 
-First model a finite worker count and bounded result cache. Once dependency behavior is validated, add startup delay and warm-container retention to those workers. Specify execution-memory and result-cache budgets separately; any later total-host constraint must account for both. Physical memory admission and eviction require their own rules before claiming a total memory limit.
+### Resource and baseline definitions
 
-### Suggested module boundaries
+LRU and GDSF retain actual values within a configured result-slot budget. GDSF uses an access clock plus frequency multiplied by recomputation duration; equal entry size is assumed. No-cache sets retention capacity to zero but still deduplicates overlapping work and preserves delivered values within a request. Full recomputation also disables exact-key deduplication and carry-over into amended generations. All strategies use identical version-safety, worker and cancellation rules.
 
-| Module | Owns |
-| --- | --- |
-| Event engine | Clock, event ordering and run orchestration |
-| Domain records | Immutable events, component keys, jobs and snapshot targets |
-| Dependency planner | Missing components, subscribers and affected snapshots |
-| Version state and publisher | Current generations and publication checks |
-| Result cache | Admission, lookup, invalidation and eviction |
-| Scheduling policies | Selection from eligible ready work |
-| Worker pool | Execution capacity, durations and completion events |
-| Metrics collector | Request outcomes, job outcomes, memory and waste |
+Cache slots and live accumulator components are counted separately. Debug history, event logs and completed output records are not charged to either simulated budget. These counts are not bounds on process RAM. Worker computation is summed virtual execution, not elapsed wall time. Metric definitions, including joined-cost counters and unused-current work, are specified in [the reassessment study](experiments/REASSESSMENT_STUDY.md).
 
-Use these as ownership boundaries. Split files when a boundary has independent behavior; the draft does not require creating every module immediately. The API and browser remain adapters around the engine.
+### Current evaluation and remaining integration
 
-### Evaluation and implementation sequence
+The test suite includes independent reconstruction of each record/rule vector at publication, cache eviction with retained accumulator values, cancellation of shared subscribers, exact-time boundaries, repeated amendments and generated traces. The exporter covers 540 deterministic workload/resource/policy combinations and writes results plus source hashes. No-cache and full-recompute baselines are available in both the API and interface.
 
-1. Add synthetic values, snapshot targets and dependencies. Verify the final aggregate with a simple uncached reference evaluator.
-2. Make misses schedule work and add exact-key deduplication. Verify eviction affects work performed without changing the accepted aggregate.
-3. Add generation-safe publication and repeated amendments, including same-time correction/completion cases.
-4. Compare schedulers and cache policies on identical seeded traces, with cache disabled and a full-recompute strategy as additional baselines.
-5. Introduce worker startup and retention, then measure the combined effect in a separate experiment.
-
-Report latest-snapshot completion latency, deadline misses, actual compute time avoided, duplicate work avoided, obsolete execution time, queue wait, cache activity and memory usage. Keep superseded requests separate from completed or missed requests, and include unfinished requests in an explicit end-of-run count. Vary amendment rate, deadline tightness, service-cost skew, worker count and cache capacity. Treat any improvement as a hypothesis until those comparisons support it.
+The new engine does not yet execute jobs through the warm-container pool. Startup/retention coupling, total host-memory admission, calibrated costs, public workloads and a real institutional pilot remain separate next steps. The existing paper's results describe the earlier revision and have not been rewritten for this implementation.

@@ -1,0 +1,18 @@
+@import url("./corrections.css");
+
+.controls label { min-width:150px; }
+.controls label:first-child { min-width:280px; }
+.insight { padding:12px 0; font-weight:650; color:#145c51; }
+.cases { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:15px; margin:18px 0 28px; }
+.case { padding:17px; border:1px solid #dce6e8; border-radius:12px; }
+.case h3 { margin:0 0 6px; }
+.case ul { padding-left:20px; margin:12px 0; }
+.case li { margin:9px 0; }
+.case .status { font-weight:750; color:#246959; }
+.case .attention { color:#8c4f13; }
+.case .history { color:#69797e; }
+details { margin:15px 0; }
+summary { cursor:pointer; padding:8px 0; font-weight:650; }
+nav { display:flex; gap:20px; flex-wrap:wrap; }
+.event p { margin:5px 0; }
+@media (max-width:600px) { .metrics { grid-template-columns:repeat(2,1fr); } }

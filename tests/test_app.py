@@ -11,7 +11,7 @@ from app import app
 client = TestClient(app)
 
 
-@pytest.mark.parametrize("path", ["/", "/corrections"])
+@pytest.mark.parametrize("path", ["/", "/corrections", "/reassessments"])
 def test_simulation_pages_are_served(path):
     response = client.get(path)
     assert response.status_code == 200
@@ -49,6 +49,24 @@ def test_api_rejects_coerced_resource_values_and_unknown_options(payload):
     assert client.post("/api/run", json=payload).status_code == 422
 
 
-@pytest.mark.parametrize("path", ["/api/run", "/api/corrections"])
+@pytest.mark.parametrize("path", ["/api/run", "/api/corrections", "/api/reassessments"])
 def test_api_rejects_unknown_scenarios(path):
     assert client.post(path, json={"scenario": "missing"}).status_code == 400
+
+
+@pytest.mark.parametrize("scenario", ["reuse", "amendments", "pressure"])
+def test_reassessment_api_compares_all_twelve_combinations(scenario):
+    response = client.post("/api/reassessments", json={"scenario": scenario, "worker_count": 2, "cache_capacity": 1})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["runs"]) == 12
+    assert all(run["summary"]["reference_verified"] for run in data["runs"].values())
+    assert all(run["summary"]["unfinished"] == 0 for run in data["runs"].values())
+
+
+@pytest.mark.parametrize("payload", [{"worker_count": True}, {"worker_count": 0},
+                                    {"worker_count": 33}, {"cache_capacity": -1},
+                                    {"cache_capacity": 4097}, {"cache_capacity": "12"},
+                                    {"worker_count": 1.5}, {"unexpected": 1}])
+def test_reassessment_api_validates_resource_types_and_limits(payload):
+    assert client.post("/api/reassessments", json=payload).status_code == 422

@@ -1,13 +1,14 @@
-"""Web interfaces and JSON APIs for both virtual-time simulations."""
+"""Web interfaces and JSON APIs for the virtual-time simulations."""
 
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from corrections import compare as compare_corrections
+from reassessment import compare as compare_reassessments
 from simulator import compare
 
 
@@ -29,6 +30,12 @@ class CorrectionOptions(SimulationOptions):
     scenario: StrictStr = "single"
 
 
+class ReassessmentOptions(SimulationOptions):
+    scenario: StrictStr = "amendments"
+    worker_count: StrictInt = Field(default=2, ge=1, le=32)
+    cache_capacity: StrictInt = Field(default=12, ge=0, le=4096)
+
+
 @app.get("/")
 def home():
     return FileResponse(ROOT / "INDEX.html")
@@ -37,6 +44,11 @@ def home():
 @app.get("/corrections")
 def corrections_home():
     return FileResponse(ROOT / "CORRECTIONS.html")
+
+
+@app.get("/reassessments")
+def reassessments_home():
+    return FileResponse(ROOT / "REASSESSMENTS.html")
 
 
 @app.post("/api/run")
@@ -51,5 +63,13 @@ def run(options: RunOptions):
 def run_corrections(options: CorrectionOptions):
     try:
         return compare_corrections(options.scenario)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/reassessments")
+def run_reassessments(options: ReassessmentOptions):
+    try:
+        return compare_reassessments(options.scenario, options.worker_count, options.cache_capacity)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
