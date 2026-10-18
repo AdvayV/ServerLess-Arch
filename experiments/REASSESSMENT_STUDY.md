@@ -12,6 +12,8 @@ python -B experiments/reassessment_study.py
 
 The exporter writes `reassessment_results.csv` and its `.provenance.json` companion. The provenance records source-file and CSV SHA-256 hashes, avoiding an ambiguous claim that an uncommitted implementation corresponds to an earlier Git revision. The sweep is deterministic and uses no host-clock timing fields.
 
+The CSV uses LF line endings. Source fingerprints use UTF-8 with CRLF normalized to LF, so Git's Windows/Linux line-ending conversion does not invalidate the provenance. A regression check validates the saved CSV and every recorded source fingerprint.
+
 There are **540 runs**: three workloads, three worker counts (1, 2, 4), five configured result-cache capacities (0, 1, 4, 12, 24), three schedulers and four reuse strategies. These are repeated parameter comparisons on fixed traces, not independent statistical samples. Do not infer a confidence interval or general performance ranking from the row count.
 
 ## Strategies

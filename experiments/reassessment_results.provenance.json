@@ -1,13 +1,14 @@
 {
   "description": "Deterministic synthetic resource sweep; rows are not independent statistical samples.",
   "rows": 540,
-  "csv_sha256": "fbdcaef850227c346d8e29f5007a41239f9d2c2183181d3a462a081cd474a573",
+  "csv_sha256": "8aec18c75bb8de4e27fca046afc558ba1a45391724e6777e075dc3c59450e666",
+  "source_hash_format": "UTF-8 with CRLF normalized to LF",
   "source_sha256": {
     "aid_domain.py": "c1bb0351fb59165207f8d71e832163773f594bc0162e059c690cc38f87211527",
     "reassessment.py": "d20bf12bd5af2fb5ad07451a2ed04f1830c09c6b5f6224991bc2e087b37ee3e8",
     "result_cache.py": "3b3a8798b692b0109700f76c303376a7637b803837ddb89d62e0e924321bb191",
     "simulation_utils.py": "0e417f6ce14f694321f38962b172a6d52ca56092132888831fdba3e7da7d10ef",
-    "experiments/reassessment_study.py": "272f0e49ece9d66e985107f2719f635173a5e691ba5ac8d9d1a7edd46c001756"
+    "experiments/reassessment_study.py": "0c93c9e37ed6068696366dec3eb784a33fb4d19c9178ccbbe6f14ebe3fac0897"
   },
   "scenarios": [
     "reuse",

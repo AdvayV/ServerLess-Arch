@@ -43,7 +43,7 @@ def export(output: Path) -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     rows = list(generate())
     with output.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(stream, fieldnames=list(rows[0]), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     sources = ["aid_domain.py", "reassessment.py", "result_cache.py", "simulation_utils.py",
@@ -51,7 +51,9 @@ def export(output: Path) -> int:
     provenance = {
         "description": "Deterministic synthetic resource sweep; rows are not independent statistical samples.",
         "rows": len(rows), "csv_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
-        "source_sha256": {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in sources},
+        "source_hash_format": "UTF-8 with CRLF normalized to LF",
+        "source_sha256": {name: hashlib.sha256((ROOT / name).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+                          for name in sources},
         "scenarios": list(SCENARIOS), "workers": WORKERS, "cache_capacities": CAPACITIES,
         "schedulers": SCHEDULERS, "strategies": STRATEGIES,
     }
